@@ -1,7 +1,7 @@
 # SQL Record Manager
 
 Aplicación de escritorio para administrar registros de SQL Server y PostgreSQL
-sin necesidad de escribir consultas SQL manualmente.
+sin necesidad de escribir consultas SQL manualmente. Esta Aplicación es una ayuda para las automatizaciones de insercion de datos , edición  , deletes controlados y carga masiva de información con muchos registros que se necesitan en corto tiempo .
 
 ## ¿Qué permite hacer?
 
