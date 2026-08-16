@@ -113,25 +113,11 @@ python -m pip install -r requirements.txt
 python app.py
 ```
 
-Las pruebas se ejecutan con:
-
-```powershell
-python -m unittest discover -s tests -v
-```
-
-La arquitectura se explica en [ARCHITECTURE.md](RP-DB/docs/ARCHITECTURE.md) y
-la guía completa de uso está en [GUIA_USUARIO.md](RP-DB/docs/GUIA_USUARIO.md).
-
 ## Crear la aplicación distribuible
 
 El proyecto puede empaquetarse con PyInstaller para que el usuario no necesite
 Python instalado. PyInstaller debe ejecutarse en Windows para generar la
 versión Windows.
-
-Los archivos preparados para crear la aplicación y el instalador están en
-[installer/README.md](installer/README.md). El script [build_windows.ps1](build_windows.ps1)
-genera la aplicación compilada y `installer/SQLRecordManager.iss` crea el
-instalador de Windows con Inno Setup.
 
 Primero instala PyInstaller en el entorno de desarrollo:
 
