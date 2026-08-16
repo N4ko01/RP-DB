@@ -10,20 +10,28 @@ import os
 
 
 DB_CONFIG = {
+    # Motores disponibles: "sqlserver" o "postgresql".
+    "provider": os.getenv("DATABASE_PROVIDER", "sqlserver"),
     # Ejemplo de servidor local: r"localhost\SQLEXPRESS"
-    "server": os.getenv("SQLSERVER_HOST", r"localhost\SQLEXPRESS"),
-    "database": os.getenv("SQLSERVER_DATABASE", "MiBaseDeDatos"),
+    "server": os.getenv("DATABASE_HOST", os.getenv("SQLSERVER_HOST", r"localhost\SQLEXPRESS")),
+    "database": os.getenv("DATABASE_NAME", os.getenv("SQLSERVER_DATABASE", "MiBaseDeDatos")),
+    "port": int(os.getenv("DATABASE_PORT", "5432")),
+    "sslmode": os.getenv("POSTGRES_SSLMODE", "prefer"),
     "driver": os.getenv("SQLSERVER_DRIVER", "ODBC Driver 18 for SQL Server"),
     # Si el driver principal no está instalado, se prueba esta lista en orden.
     "driver_candidates": [
         "ODBC Driver 18 for SQL Server",
         "ODBC Driver 17 for SQL Server",
+        "ODBC Driver 13.1 for SQL Server",
+        "ODBC Driver 13 for SQL Server",
+        "ODBC Driver 11 for SQL Server",
+        "SQL Server Native Client 11.0",
     ],
     # True: autenticación de Windows. False: usuario/clave de SQL Server.
     "trusted_connection": os.getenv("SQLSERVER_TRUSTED", "true").lower()
     in {"1", "true", "yes", "si", "sí"},
-    "username": os.getenv("SQLSERVER_USER", ""),
-    "password": os.getenv("SQLSERVER_PASSWORD", ""),
+    "username": os.getenv("DATABASE_USER", os.getenv("SQLSERVER_USER", "")),
+    "password": os.getenv("DATABASE_PASSWORD", os.getenv("SQLSERVER_PASSWORD", "")),
     # Para certificados internos/locales. En producción configura el certificado
     # correctamente y cambia esta opción a False.
     "trust_server_certificate": os.getenv(
@@ -139,6 +147,7 @@ UPDATE_CONFIG = {
     "allow_non_unique_updates": True,
     # Límite de seguridad para una sola confirmación desde la interfaz.
     "max_rows_per_update": 100000,
+    "max_rows_per_delete": 100000,
     # Columna(s) que identifican UN registro. Lo ideal es usar la PRIMARY KEY.
     # Puede ser una clave compuesta: ["EmpresaID", "CodigoProducto"].
     "key_fields": ["ClienteID"],
@@ -187,7 +196,7 @@ LOG_CONFIG = {
 
 # Apariencia general. Puedes cambiar estos valores sin tocar gui.py.
 UI_CONFIG = {
-    "app_name": "SQL Managment",
+    "app_name": "SQL Record Manager",
     # Sin logotipo corporativo en la barra superior.
     "logo_path": "",
     "logo_opacity": 0.60,
@@ -210,21 +219,21 @@ UI_CONFIG = {
     "resize_width_tolerance": 8,
     "font_family": "Segoe UI",
     "colors": {
-        "background": "#101A24",
-        "surface": "#172532",
-        "surface_alt": "#203544",
-        "topbar": "#0D1822",
-        "topbar_dark": "#142633",
-        "sidebar": "#0D1B27",
-        "sidebar_hover": "#193142",
-        "sidebar_active": "#24516A",
-        "primary": "#55B9DC",
-        "primary_hover": "#3F9CBD",
-        "text": "#E5F2F7",
-        "muted": "#9AB3BF",
-        "border": "#2D4656",
-        "success": "#6BC7A2",
-        "danger": "#F08B98",
-        "selection": "#28536A",
+        "background": "#111827",
+        "surface": "#1F2937",
+        "surface_alt": "#273449",
+        "topbar": "#0F172A",
+        "topbar_dark": "#172033",
+        "sidebar": "#0B1220",
+        "sidebar_hover": "#1A2638",
+        "sidebar_active": "#24344A",
+        "primary": "#7C9CCB",
+        "primary_hover": "#92AFD6",
+        "text": "#E5E7EB",
+        "muted": "#9CA9BA",
+        "border": "#334155",
+        "success": "#86C7A3",
+        "danger": "#D98A97",
+        "selection": "#31435A",
     },
 }

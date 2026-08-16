@@ -163,11 +163,6 @@ class ExcelImportService:
         return indexes, extra_headers
 
     def load(self, file_path: str) -> ExcelImportData:
-        if load_workbook is None:
-            raise ConfigurationError(
-                "Falta openpyxl. Ejecuta: python -m pip install -r requirements.txt"
-            )
-
         path = Path(file_path)
         if not path.is_file():
             raise ValidationError("El archivo Excel seleccionado no existe.")
@@ -178,6 +173,10 @@ class ExcelImportService:
         if path.suffix.lower() not in allowed:
             raise ValidationError(
                 "Formato no permitido. Usa: " + ", ".join(sorted(allowed))
+            )
+        if load_workbook is None:
+            raise ConfigurationError(
+                "Falta openpyxl. Ejecuta: python -m pip install -r requirements.txt"
             )
 
         workbook = load_workbook(

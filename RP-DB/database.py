@@ -102,13 +102,28 @@ def resolve_sql_server_driver(
     configured_candidates = config.get("driver_candidates", [])
     if not isinstance(configured_candidates, (list, tuple)):
         raise ConfigurationError("driver_candidates debe ser una lista.")
+    configured = [
+        str(driver).strip()
+        for driver in configured_candidates
+        if str(driver).strip()
+    ]
+    detected_sql_server = [
+        actual
+        for actual in installed_by_name.values()
+        if "sql server" in actual.casefold()
+    ]
     candidates = list(
         dict.fromkeys(
             [
                 requested,
-                *(str(driver).strip() for driver in configured_candidates),
+                *configured,
                 "ODBC Driver 18 for SQL Server",
                 "ODBC Driver 17 for SQL Server",
+                "ODBC Driver 13.1 for SQL Server",
+                "ODBC Driver 13 for SQL Server",
+                "ODBC Driver 11 for SQL Server",
+                "SQL Server Native Client 11.0",
+                *detected_sql_server,
             ]
         )
     )
@@ -122,7 +137,8 @@ def resolve_sql_server_driver(
     raise ConfigurationError(
         "No se encontró un controlador ODBC compatible con SQL Server. "
         f"Se buscaron: {expected_text}. Drivers instalados: {installed_text}. "
-        "Instala Microsoft ODBC Driver 18/17 o corrige DB_CONFIG['driver']."
+        "Instala un driver ODBC de SQL Server (11 o posterior) o corrige "
+        "DB_CONFIG['driver']."
     )
 
 
@@ -417,6 +433,29 @@ class SQLServerRepository:
         return (
             f"SET NOCOUNT ON; UPDATE TOP ({int(requested_rows)}) {self.table_name} "
             f"SET {assignments} WHERE {predicate}; SELECT @@ROWCOUNT;"
+        )
+
+    def build_delete_statement(self) -> str:
+        if not self.key_fields:
+            raise ConfigurationError("No hay una clave configurada para eliminar.")
+        predicates = " AND ".join(
+            f"({quote_identifier(name)} = ? OR "
+            f"({quote_identifier(name)} IS NULL AND ? IS NULL))"
+            for name in self.key_fields
+        )
+        return (
+            f"SET NOCOUNT ON; DELETE FROM {self.table_name} WHERE {predicates}; "
+            "SELECT @@ROWCOUNT;"
+        )
+
+    def build_limited_delete_statement(self, requested_rows: int) -> str:
+        maximum = int(self.update_config.get("max_rows_per_delete", 100000))
+        if not 1 <= int(requested_rows) <= maximum:
+            raise ValidationError(f"La cantidad debe estar entre 1 y {maximum:,}.")
+        predicate = self._null_safe_predicate(self.match_fields)
+        return (
+            f"SET NOCOUNT ON; DELETE TOP ({int(requested_rows)}) FROM {self.table_name} "
+            f"WHERE {predicate}; SELECT @@ROWCOUNT;"
         )
 
     def prepare_values(self, raw_values: Mapping[str, Any]) -> list[Any]:
@@ -822,6 +861,114 @@ class SQLServerRepository:
                 requested_rows=requested,
                 transaction="ROLLBACK",
                 duration_seconds=perf_counter() - started,
+                error=str(exc),
+            )
+            raise
+        finally:
+            if connection is not None:
+                connection.close()
+
+    def delete(self, original_row: Mapping[str, Any]) -> int:
+        """Elimina exactamente un registro identificado por su clave única."""
+        original_lower = {
+            str(name).casefold(): value for name, value in original_row.items()
+        }
+        missing = [name for name in self.key_fields if name.casefold() not in original_lower]
+        if missing:
+            raise ValidationError(
+                "El resultado seleccionado no contiene la clave: " + ", ".join(missing)
+            )
+        values = [original_lower[name.casefold()] for name in self.key_fields]
+        parameters = [value for value in values for _ in (0, 1)]
+        sql = self.build_delete_statement()
+        return self._execute_delete(sql, parameters, 1, 1, "DELETE")
+
+    def delete_matching_rows(
+        self, original_row: Mapping[str, Any], requested_rows: int
+    ) -> UpdateResult:
+        """Elimina una cantidad exacta de filas que tienen los mismos valores."""
+        if not self.non_unique_mode:
+            raise ConfigurationError("La eliminación por cantidad no está habilitada.")
+        try:
+            requested = int(requested_rows)
+        except (TypeError, ValueError) as exc:
+            raise ValidationError("La cantidad a eliminar debe ser un entero.") from exc
+        parameters = self._match_parameters(original_row)
+        count_sql = self.build_match_count_statement(lock_rows=True)
+        delete_sql = self.build_limited_delete_statement(requested)
+        connection = None
+        matched = 0
+        started = perf_counter()
+        try:
+            connection = self._connect()
+            cursor = connection.cursor()
+            cursor.execute(count_sql, *parameters)
+            row = cursor.fetchone()
+            matched = int(row[0]) if row else 0
+            if not 1 <= requested <= matched:
+                raise ValidationError(
+                    f"La cantidad debe estar entre 1 y las {matched:,} coincidencias disponibles."
+                )
+            cursor.execute(delete_sql, *parameters)
+            affected_row = cursor.fetchone()
+            affected = int(affected_row[0]) if affected_row else 0
+            if affected != requested:
+                raise ValidationError(
+                    f"Se solicitaron {requested:,} filas, pero el motor reportó {affected:,}."
+                )
+            connection.commit()
+            self._log_operation(
+                operation="DELETE POR CANTIDAD", sql=count_sql + "\n" + delete_sql,
+                status="CORRECTO", rows=affected, matched_rows=matched,
+                requested_rows=requested, transaction="COMMIT",
+                duration_seconds=perf_counter() - started,
+            )
+            return UpdateResult(affected, matched, requested)
+        except Exception as exc:
+            if connection is not None:
+                connection.rollback()
+            self._log_operation(
+                operation="DELETE POR CANTIDAD", sql=count_sql + "\n" + delete_sql,
+                status="ERROR / ROLLBACK", rows=0, matched_rows=matched,
+                requested_rows=requested, transaction="ROLLBACK",
+                duration_seconds=perf_counter() - started, error=str(exc),
+            )
+            raise
+        finally:
+            if connection is not None:
+                connection.close()
+
+    def _execute_delete(
+        self, sql: str, parameters: Sequence[Any], requested: int,
+        matched: int, operation: str,
+    ) -> int:
+        connection = None
+        started = perf_counter()
+        affected = 0
+        try:
+            connection = self._connect()
+            cursor = connection.cursor()
+            cursor.execute(sql, *parameters)
+            row = cursor.fetchone()
+            affected = int(row[0]) if row else 0
+            if affected != requested:
+                raise ValidationError(
+                    f"La eliminación se canceló porque habría afectado {affected} registros."
+                )
+            connection.commit()
+            self._log_operation(
+                operation=operation, sql=sql, status="CORRECTO", rows=affected,
+                matched_rows=matched, requested_rows=requested,
+                transaction="COMMIT", duration_seconds=perf_counter() - started,
+            )
+            return affected
+        except Exception as exc:
+            if connection is not None:
+                connection.rollback()
+            self._log_operation(
+                operation=operation, sql=sql, status="ERROR / ROLLBACK", rows=0,
+                matched_rows=matched, requested_rows=requested,
+                transaction="ROLLBACK", duration_seconds=perf_counter() - started,
                 error=str(exc),
             )
             raise

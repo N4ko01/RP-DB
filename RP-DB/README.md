@@ -1,16 +1,18 @@
-# GUI genérica para insertar y actualizar registros en SQL Server
+# Administrador de datos para SQL Server y PostgreSQL
 
-Aplicación de escritorio en Python/Tkinter que se conecta a SQL Server, muestra
+Aplicación de escritorio en Python/Tkinter que se conecta a SQL Server o PostgreSQL, muestra
 las tablas disponibles y genera el formulario a partir de sus metadatos.
-Incluye inserción manual, búsqueda y actualización, inserción masiva desde
-Excel, progreso por lotes y un visor de SQL/logs. Todas las operaciones SQL
-usan parámetros con `pyodbc`.
+Incluye inserción manual, búsqueda, actualización y eliminación segura,
+inserción masiva desde Excel, progreso por lotes y un visor de SQL/logs. Todas
+las operaciones usan consultas parametrizadas.
 
 ## Estructura
 
 - `config.py`: conexión, permisos de tablas, personalizaciones y opciones.
 - `catalog.py`: descubre tablas, columnas, tipos, IDENTITY y claves.
 - `database.py`: conexión, validación, búsqueda, inserción y actualización.
+- `postgresql.py`: dialecto, conexión y catálogo específicos de PostgreSQL.
+- `providers.py`: selecciona la implementación correspondiente a cada motor.
 - `excel_import.py`: lectura y validación del Excel; no contiene SQL.
 - `operation_log.py`: historial de operaciones sin valores sensibles.
 - `credential_store.py`: perfil local y contraseña en el almacén seguro.
@@ -22,8 +24,9 @@ usan parámetros con `pyodbc`.
 ## 1. Requisitos
 
 - Windows con Python 3.10 o superior.
-- SQL Server accesible desde el equipo.
-- Microsoft ODBC Driver 18 o 17 for SQL Server.
+- SQL Server o PostgreSQL accesible desde el equipo.
+- Para SQL Server, un driver ODBC compatible (11, 13, 17, 18 o posterior).
+- Para PostgreSQL se usa `psycopg`, instalado desde `requirements.txt`.
 
 En una terminal abierta dentro de la carpeta del proyecto:
 
@@ -38,7 +41,7 @@ python -m pip install -r requirements.txt
 Al abrir `app.py`, la primera opción del menú es **Conexión**. Allí puedes
 ingresar:
 
-- servidor e instancia;
+- motor, servidor e instancia o puerto;
 - base de datos;
 - autenticación de SQL Server o Windows;
 - usuario y contraseña cuando corresponda;
@@ -59,6 +62,7 @@ mostrarán cuando todavía no exista un perfil:
 
 ```python
 DB_CONFIG = {
+    "provider": "sqlserver",  # o "postgresql"
     "server": r"SERVIDOR\INSTANCIA",
     "database": "MiBase",
     "driver": "ODBC Driver 18 for SQL Server",
@@ -74,8 +78,9 @@ DB_CONFIG = {
 }
 ```
 
-La aplicación comprueba los drivers instalados. Si no encuentra el Driver 18,
-usa automáticamente el Driver 17. Para ver los disponibles en tu equipo:
+La aplicación comprueba los drivers SQL Server instalados y elige el primero
+compatible, incluyendo las familias 11, 13, 17, 18 y posteriores. Para ver los
+disponibles en tu equipo:
 
 ```powershell
 python -c "import pyodbc; print(pyodbc.drivers())"
@@ -471,13 +476,14 @@ las pantallas de inserción, actualización e importación por cada píxel.
 
 ## Seguridad y transacciones
 
-- Los valores se mandan mediante marcadores `?`; no se concatenan al SQL.
+- Los valores se mandan mediante parámetros (`?` en SQL Server y `%s` en
+  PostgreSQL); no se concatenan al SQL.
 - La contraseña no se guarda en archivos ni en los logs; se almacena en el
   Administrador de credenciales de Windows mediante `keyring`.
 - Esquema, tabla y columnas proceden del catálogo autorizado o de `config.py`;
   se delimitan con corchetes y cualquier corchete interno se escapa de forma
   segura. También se admiten nombres que contengan espacios.
-- Cada inserción, actualización o carga masiva hace `commit` solo si termina
+- Cada inserción, actualización, eliminación o carga masiva hace `commit` solo si termina
   correctamente; ante un error hace `rollback`.
 - Con una clave única se exige exactamente una fila. Sin clave, se bloquean las
   coincidencias originales y se exige exactamente la cantidad confirmada.
@@ -486,7 +492,7 @@ las pantallas de inserción, actualización e importación por cada píxel.
 - Después de una actualización correcta, la interfaz abre automáticamente
   **SQL / Logs** para mostrar el registro recién generado.
 - Conviene otorgar al usuario únicamente acceso a los metadatos necesarios y
-  permisos `SELECT`, `INSERT` y `UPDATE` sobre las tablas autorizadas. También
+  permisos `SELECT`, `INSERT`, `UPDATE` y `DELETE` sobre las tablas autorizadas. También
   puedes restringirlas mediante `allowed_tables`.
 
 ## Ejecutar las pruebas

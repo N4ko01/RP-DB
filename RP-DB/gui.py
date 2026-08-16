@@ -1,4 +1,4 @@
-"""Interfaz moderna, responsiva y minimalista para SQL Server."""
+"""Interfaz de escritorio para administrar SQL Server y PostgreSQL."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ from catalog import (
 from credential_store import CredentialProfileStore
 from database import ConfigurationError, SQLServerRepository, ValidationError
 from excel_import import ExcelImportData, ExcelImportService
+from providers import create_catalog, create_repository, provider_display_name
 
 try:
     from PIL import Image, ImageTk
@@ -432,12 +433,13 @@ class ConnectionPage(ttk.Frame):
     """Conexión, credenciales y selección de tabla dentro de la aplicación."""
 
     AUTH_MODES = ("SQL Server (usuario y contraseña)", "Windows")
+    PROVIDERS = ("SQL Server", "PostgreSQL")
 
     def __init__(self, parent: tk.Misc, app: "InsertFormApp") -> None:
         super().__init__(parent, style="Page.TFrame", padding=(22, 18))
         self.app = app
         self.references: dict[str, TableReference] = {}
-        self.catalog: SQLServerCatalog | None = None
+        self.catalog: Any | None = None
         self.active_config: dict[str, Any] | None = None
         profile = dict(app.connection_profile)
         self.columnconfigure(0, weight=1)
@@ -446,7 +448,7 @@ class ConnectionPage(ttk.Frame):
         PageHeader(
             self,
             "Acceso",
-            "Conexión a SQL Server",
+            "Conexión a bases de datos",
             "Ingresa la conexión, carga las tablas y selecciona con cuál deseas trabajar.",
         ).grid(row=0, column=0, sticky="ew", pady=(0, 12))
 
@@ -455,8 +457,13 @@ class ConnectionPage(ttk.Frame):
         for column in range(2):
             card.columnconfigure(column, weight=1)
 
+        provider = str(profile.get("provider", "sqlserver")).casefold()
+        self.provider = tk.StringVar(
+            value="PostgreSQL" if provider == "postgresql" else "SQL Server"
+        )
         self.server = tk.StringVar(value=str(profile.get("server", "")))
         self.database = tk.StringVar(value=str(profile.get("database", "")))
+        self.port = tk.StringVar(value=str(profile.get("port", 5432)))
         self.driver = tk.StringVar(value=str(profile.get("driver", "")))
         self.username = tk.StringVar(value=str(profile.get("username", "")))
         self.password = tk.StringVar(value=str(profile.get("password", "")))
@@ -470,10 +477,20 @@ class ConnectionPage(ttk.Frame):
         self.remember = tk.BooleanVar(value=True)
         self.show_password = tk.BooleanVar(value=False)
 
-        self._field(card, "Servidor", self.server, 0, 0)
-        self._field(card, "Base de datos", self.database, 0, 1)
+        ttk.Label(card, text="Motor", style="FieldLabel.TLabel").grid(
+            row=0, column=0, columnspan=2, sticky="w"
+        )
+        provider_combo = ttk.Combobox(
+            card, textvariable=self.provider, values=self.PROVIDERS,
+            state="readonly", style="Modern.TCombobox",
+        )
+        provider_combo.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(4, 0))
+        provider_combo.bind("<<ComboboxSelected>>", lambda _event: self._toggle_provider())
+
+        self._field(card, "Servidor", self.server, 2, 0)
+        self._field(card, "Base de datos", self.database, 2, 1)
         ttk.Label(card, text="Autenticación", style="FieldLabel.TLabel").grid(
-            row=2, column=0, sticky="w", pady=(10, 4)
+            row=4, column=0, sticky="w", pady=(10, 4)
         )
         auth_combo = ttk.Combobox(
             card,
@@ -482,12 +499,14 @@ class ConnectionPage(ttk.Frame):
             state="readonly",
             style="Modern.TCombobox",
         )
-        auth_combo.grid(row=3, column=0, sticky="ew", padx=(0, 8))
+        auth_combo.grid(row=5, column=0, sticky="ew", padx=(0, 8))
+        self.auth_combo = auth_combo
         auth_combo.bind("<<ComboboxSelected>>", lambda _event: self._toggle_auth())
 
-        ttk.Label(card, text="Controlador ODBC", style="FieldLabel.TLabel").grid(
-            row=2, column=1, sticky="w", pady=(10, 4)
+        self.driver_label = ttk.Label(
+            card, text="Controlador ODBC", style="FieldLabel.TLabel"
         )
+        self.driver_label.grid(row=4, column=1, sticky="w", pady=(10, 4))
         driver_values = list(
             dict.fromkeys(
                 [
@@ -495,31 +514,38 @@ class ConnectionPage(ttk.Frame):
                     *profile.get("driver_candidates", []),
                     "ODBC Driver 18 for SQL Server",
                     "ODBC Driver 17 for SQL Server",
+                    "ODBC Driver 13.1 for SQL Server",
+                    "ODBC Driver 13 for SQL Server",
+                    "ODBC Driver 11 for SQL Server",
+                    "SQL Server Native Client 11.0",
                 ]
             )
         )
-        ttk.Combobox(
+        self.driver_combo = ttk.Combobox(
             card,
             textvariable=self.driver,
             values=[value for value in driver_values if value],
             state="normal",
             style="Modern.TCombobox",
-        ).grid(row=3, column=1, sticky="ew", padx=(8, 0))
+        )
+        self.driver_combo.grid(row=5, column=1, sticky="ew", padx=(8, 0))
+        self.port_label = ttk.Label(card, text="Puerto", style="FieldLabel.TLabel")
+        self.port_entry = ttk.Entry(card, textvariable=self.port, style="Modern.TEntry")
 
         self.username_label = ttk.Label(
             card, text="Usuario", style="FieldLabel.TLabel"
         )
-        self.username_label.grid(row=4, column=0, sticky="w", pady=(10, 4))
+        self.username_label.grid(row=6, column=0, sticky="w", pady=(10, 4))
         self.username_entry = ttk.Entry(
             card, textvariable=self.username, style="Modern.TEntry"
         )
-        self.username_entry.grid(row=5, column=0, sticky="ew", padx=(0, 8))
+        self.username_entry.grid(row=7, column=0, sticky="ew", padx=(0, 8))
         self.password_label = ttk.Label(
             card, text="Contraseña", style="FieldLabel.TLabel"
         )
-        self.password_label.grid(row=4, column=1, sticky="w", pady=(10, 4))
+        self.password_label.grid(row=6, column=1, sticky="w", pady=(10, 4))
         password_holder = ttk.Frame(card, style="Card.TFrame")
-        password_holder.grid(row=5, column=1, sticky="ew", padx=(8, 0))
+        password_holder.grid(row=7, column=1, sticky="ew", padx=(8, 0))
         password_holder.columnconfigure(0, weight=1)
         self.password_entry = ttk.Entry(
             password_holder,
@@ -537,13 +563,14 @@ class ConnectionPage(ttk.Frame):
         ).grid(row=0, column=1, padx=(8, 0))
 
         options = ttk.Frame(card, style="Card.TFrame")
-        options.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(13, 0))
-        ttk.Checkbutton(
+        options.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(13, 0))
+        self.certificate_check = ttk.Checkbutton(
             options,
             text="Confiar en el certificado del servidor",
             variable=self.trust_certificate,
             style="Modern.TCheckbutton",
-        ).pack(side="left")
+        )
+        self.certificate_check.pack(side="left")
         ttk.Checkbutton(
             options,
             text="Recordar esta conexión",
@@ -552,7 +579,7 @@ class ConnectionPage(ttk.Frame):
         ).pack(side="left", padx=18)
 
         actions = ttk.Frame(card, style="Card.TFrame")
-        actions.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(14, 0))
+        actions.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(14, 0))
         self.connect_button = ttk.Button(
             actions,
             text="Conectar y cargar tablas",
@@ -604,7 +631,7 @@ class ConnectionPage(ttk.Frame):
         self.progress.grid_remove()
         self.status = StatusBar(self, "Completa los datos y conecta.")
         self.status.grid(row=3, column=0, sticky="ew", pady=(10, 0))
-        self._toggle_auth()
+        self._toggle_provider()
 
     @staticmethod
     def _field(
@@ -626,16 +653,36 @@ class ConnectionPage(ttk.Frame):
         )
 
     def _toggle_auth(self) -> None:
-        sql_auth = self.auth_mode.get() != "Windows"
+        sql_auth = self.provider.get() == "PostgreSQL" or self.auth_mode.get() != "Windows"
         state = "normal" if sql_auth else "disabled"
         self.username_entry.configure(state=state)
         self.password_entry.configure(state=state)
+
+    def _toggle_provider(self) -> None:
+        postgres = self.provider.get() == "PostgreSQL"
+        if postgres:
+            self.auth_mode.set(self.AUTH_MODES[0])
+            self.auth_combo.configure(state="disabled")
+            self.driver_label.grid_remove()
+            self.driver_combo.grid_remove()
+            self.port_label.grid(row=4, column=1, sticky="w", pady=(10, 4))
+            self.port_entry.grid(row=5, column=1, sticky="ew", padx=(8, 0))
+            self.certificate_check.configure(text="Exigir conexión SSL")
+        else:
+            self.auth_combo.configure(state="readonly")
+            self.port_label.grid_remove()
+            self.port_entry.grid_remove()
+            self.driver_label.grid()
+            self.driver_combo.grid()
+            self.certificate_check.configure(text="Confiar en el certificado del servidor")
+        self._toggle_auth()
 
     def _toggle_password(self) -> None:
         self.password_entry.configure(show="" if self.show_password.get() else "●")
 
     def _collect_config(self) -> dict[str, Any]:
-        trusted = self.auth_mode.get() == "Windows"
+        postgres = self.provider.get() == "PostgreSQL"
+        trusted = not postgres and self.auth_mode.get() == "Windows"
         candidates = list(
             dict.fromkeys(
                 [
@@ -643,12 +690,19 @@ class ConnectionPage(ttk.Frame):
                     *self.app.connection_profile.get("driver_candidates", []),
                     "ODBC Driver 18 for SQL Server",
                     "ODBC Driver 17 for SQL Server",
+                    "ODBC Driver 13.1 for SQL Server",
+                    "ODBC Driver 13 for SQL Server",
+                    "ODBC Driver 11 for SQL Server",
+                    "SQL Server Native Client 11.0",
                 ]
             )
         )
         return {
+            "provider": "postgresql" if postgres else "sqlserver",
             "server": self.server.get().strip(),
             "database": self.database.get().strip(),
+            "port": int(self.port.get() or 5432),
+            "sslmode": "require" if self.trust_certificate.get() else "prefer",
             "driver": self.driver.get().strip(),
             "driver_candidates": [item for item in candidates if item],
             "trusted_connection": trusted,
@@ -682,11 +736,15 @@ class ConnectionPage(ttk.Frame):
         messagebox.showerror(title, message, parent=self)
 
     def _connect(self) -> None:
-        config = self._collect_config()
+        try:
+            config = self._collect_config()
+        except ValueError:
+            self._error("Puerto", "El puerto debe ser un número entero.")
+            return
         self.references.clear()
         self.table_combo.configure(values=[])
         self._set_busy(True, "Conectando y consultando las tablas disponibles...")
-        catalog = SQLServerCatalog(config, self.app.selector_config)
+        catalog = create_catalog(config, self.app.selector_config)
 
         def completed(tables: Sequence[TableReference]) -> None:
             self.catalog = catalog
@@ -873,6 +931,9 @@ class ConnectionPage(ttk.Frame):
         self.server.set("")
         self.database.set("")
         self.driver.set("ODBC Driver 18 for SQL Server")
+        self.provider.set("SQL Server")
+        self.port.set("5432")
+        self._toggle_provider()
         self.selected_table.set("")
         self.status.set("Datos guardados eliminados.", "success")
 
@@ -959,7 +1020,8 @@ class InsertPage(ttk.Frame):
             self.status.set("Registro insertado correctamente." + suffix, "success")
             messagebox.showinfo(
                 "Inserción correcta",
-                "El registro fue guardado en SQL Server." + suffix,
+                f"El registro fue guardado en {provider_display_name(self.repository.db_config)}."
+                + suffix,
                 parent=self,
             )
             self.form.clear()
@@ -978,7 +1040,8 @@ class InsertPage(ttk.Frame):
             self.status.set("Conexión y estructura verificadas.", "success")
             messagebox.showinfo(
                 "Conexión correcta",
-                "SQL Server respondió y la configuración coincide con la tabla.",
+                f"{provider_display_name(self.repository.db_config)} respondió y la "
+                "configuración coincide con la tabla.",
                 parent=self,
             )
 
@@ -992,7 +1055,9 @@ class InsertPage(ttk.Frame):
 class UpdatePage(ttk.Frame):
     MODE_LABELS = {"Contiene": "contains", "Exacto": "exact"}
 
-    def __init__(self, parent: tk.Misc, app: "InsertFormApp") -> None:
+    def __init__(
+        self, parent: tk.Misc, app: "InsertFormApp", *, delete_mode: bool = False
+    ) -> None:
         super().__init__(parent, style="Page.TFrame", padding=(22, 18))
         self.app = app
         self.repository = app.repository
@@ -1007,8 +1072,12 @@ class UpdatePage(ttk.Frame):
         PageHeader(
             self,
             "Administración",
-            "Buscar y actualizar",
-            "Filtra por cualquier columna, selecciona una fila y modifica sus valores.",
+            "Buscar y eliminar" if delete_mode else "Buscar y actualizar",
+            (
+                "Filtra por cualquier columna y selecciona las filas que deseas eliminar."
+                if delete_mode
+                else "Filtra por cualquier columna, selecciona una fila y modifica sus valores."
+            ),
         ).grid(row=0, column=0, sticky="ew", pady=(0, 12))
 
         search_card = Card(self, padding=14)
@@ -1108,6 +1177,7 @@ class UpdatePage(ttk.Frame):
         self.tree.bind("<<TreeviewSelect>>", lambda _event: self._selection_changed())
 
         result_actions = ttk.Frame(results_card, style="Card.TFrame")
+        self.result_actions = result_actions
         result_actions.grid(row=2, column=0, sticky="ew", pady=(10, 0))
         self.edit_button = ttk.Button(
             result_actions,
@@ -1128,6 +1198,7 @@ class UpdatePage(ttk.Frame):
         )
 
         editor_card = Card(self, padding=12)
+        self.editor_card = editor_card
         editor_card.grid(row=4, column=0, sticky="nsew")
         editor_card.columnconfigure(0, weight=1)
         editor_card.rowconfigure(1, weight=1)
@@ -1427,6 +1498,145 @@ class UpdatePage(ttk.Frame):
         self.update_button.configure(text="Actualizar registro", state="disabled")
 
 
+class DeletePage(UpdatePage):
+    """Búsqueda y eliminación segura de registros."""
+
+    def __init__(self, parent: tk.Misc, app: "InsertFormApp") -> None:
+        super().__init__(parent, app, delete_mode=True)
+        self.editor_card.grid_remove()
+        self.rowconfigure(4, weight=0)
+        self.delete_button = ttk.Button(
+            self.result_actions,
+            text="Eliminar seleccionado",
+            command=self._delete_selected,
+            style="Danger.TButton",
+            state="disabled",
+        )
+        self.delete_button.pack(side="right")
+        self.delete_quantity = ttk.Spinbox(
+            self.result_actions,
+            textvariable=self.update_quantity,
+            from_=1,
+            to=1,
+            width=8,
+            justify="center",
+            style="Modern.TSpinbox",
+            state="disabled",
+        )
+        if self.repository.non_unique_mode:
+            self.delete_quantity.pack(side="right", padx=(8, 12))
+            ttk.Label(
+                self.result_actions, text="Cantidad:", style="FieldLabel.TLabel"
+            ).pack(side="right")
+        self.edit_button.configure(text="Preparar eliminación")
+        self.status.set("Busca y selecciona el registro que deseas eliminar.")
+
+    def _set_busy(self, busy: bool, message: str) -> None:
+        super()._set_busy(busy, message)
+        if hasattr(self, "delete_button"):
+            self.delete_button.configure(
+                state="disabled" if busy or self.original_row is None else "normal"
+            )
+        if hasattr(self, "delete_quantity") and self.repository.non_unique_mode:
+            self.delete_quantity.configure(
+                state=(
+                    "normal"
+                    if not busy and self.original_row is not None and self.match_total > 0
+                    else "disabled"
+                )
+            )
+
+    def _cancel_edit(self) -> None:
+        super()._cancel_edit()
+        if hasattr(self, "delete_button"):
+            self.delete_button.configure(state="disabled")
+        if hasattr(self, "delete_quantity"):
+            self.delete_quantity.configure(state="disabled")
+
+    def _load_selected(self) -> None:
+        selection = self.tree.selection()
+        if not selection:
+            self._error("Selección", "Selecciona un registro de la tabla de resultados.")
+            return
+        self.original_row = dict(self.rows[selection[0]])
+        self.match_total = 1
+        self.update_quantity.set("1")
+        if not self.repository.non_unique_mode:
+            self.delete_button.configure(state="normal")
+            self.status.set("Registro listo para eliminar.", "success")
+            return
+
+        self._set_busy(True, "Contando filas con los mismos valores...")
+
+        def completed(total: int) -> None:
+            self.match_total = total
+            self._set_busy(False, f"Se encontraron {total:,} coincidencia(s).")
+            if total < 1:
+                self._cancel_edit()
+                return
+            self.quantity_spin.configure(from_=1, to=total, state="normal")
+            self.delete_quantity.configure(from_=1, to=total, state="normal")
+            self.delete_button.configure(state="normal")
+            self.status.set(
+                f"Hay {total:,} filas idénticas. Indica una cantidad antes de eliminar.",
+                "success",
+            )
+
+        self.app.run_background(
+            lambda: self.repository.count_matching_rows(self.original_row or {}),
+            completed,
+            self._error,
+        )
+
+    def _delete_selected(self) -> None:
+        if self.original_row is None:
+            self._error("Selección", "Primero prepara un registro para eliminar.")
+            return
+        requested = 1
+        if self.repository.non_unique_mode:
+            try:
+                requested = int(self.update_quantity.get())
+            except ValueError:
+                self._error("Cantidad", "Escribe una cantidad entera.")
+                return
+            if not 1 <= requested <= self.match_total:
+                self._error(
+                    "Cantidad", f"La cantidad debe estar entre 1 y {self.match_total:,}."
+                )
+                return
+        if not messagebox.askyesno(
+            "Confirmar eliminación",
+            f"Se eliminarán permanentemente {requested:,} registro(s).\n\n"
+            "Esta acción no se puede deshacer. ¿Deseas continuar?",
+            icon="warning",
+            parent=self,
+        ):
+            return
+        original = dict(self.original_row)
+        self._set_busy(True, "Eliminando registros...")
+
+        def completed(result: Any) -> None:
+            affected = int(getattr(result, "affected", result))
+            self._set_busy(False, f"Eliminación correcta: {affected:,} registro(s).")
+            messagebox.showinfo(
+                "Eliminación correcta",
+                f"Filas eliminadas: {affected:,}\nTransacción: COMMIT",
+                parent=self,
+            )
+            self._cancel_edit()
+            if self.search_value.get().strip():
+                self._search()
+            else:
+                self._show_all()
+
+        operation = (
+            (lambda: self.repository.delete_matching_rows(original, requested))
+            if self.repository.non_unique_mode
+            else (lambda: self.repository.delete(original))
+        )
+        self.app.run_background(operation, completed, self._error)
+
+
 class BulkInsertPage(ttk.Frame):
     """Selección, validación, vista previa e inserción masiva desde Excel."""
 
@@ -1706,7 +1916,8 @@ class BulkInsertPage(ttk.Frame):
             )
             messagebox.showinfo(
                 "Inserción masiva correcta",
-                f"Se guardaron {inserted:,} filas en SQL Server.",
+                f"Se guardaron {inserted:,} filas en "
+                f"{provider_display_name(self.repository.db_config)}.",
                 parent=self,
             )
             self._clear()
@@ -1876,6 +2087,16 @@ class LogPage(ttk.Frame):
                     "UPDATE por clave única:\n"
                     + self.repository.build_update_statement(editable)
                 )
+            if self.repository.non_unique_mode:
+                sections.append(
+                    "DELETE por cantidad (ejemplo para 1 fila):\n"
+                    + self.repository.build_limited_delete_statement(1)
+                )
+            else:
+                sections.append(
+                    "DELETE por clave única:\n"
+                    + self.repository.build_delete_statement()
+                )
         return "\n\n".join(sections)
 
 
@@ -1916,24 +2137,24 @@ class InsertFormApp(tk.Tk):
         self.log_enabled = bool(
             self.operation_logger is not None and self.operation_logger.enabled
         )
-        self.sidebar_hint_text = "SQL SERVER\nSin conexión activa"
+        self.sidebar_hint_text = "BASE DE DATOS\nSin conexión activa"
         self.colors = {
-            "background": "#0E0E10",
-            "surface": "#171719",
-            "surface_alt": "#202024",
-            "topbar": "#050505",
-            "topbar_dark": "#111113",
-            "sidebar": "#0A0A0B",
-            "sidebar_hover": "#1D1D20",
-            "sidebar_active": "#303035",
-            "primary": "#45454C",
-            "primary_hover": "#5A5A63",
-            "text": "#F4F4F5",
-            "muted": "#A1A1AA",
-            "border": "#34343A",
-            "success": "#6EE7B7",
-            "danger": "#FB7185",
-            "selection": "#3A3A41",
+            "background": "#111827",
+            "surface": "#1F2937",
+            "surface_alt": "#273449",
+            "topbar": "#0F172A",
+            "topbar_dark": "#172033",
+            "sidebar": "#0B1220",
+            "sidebar_hover": "#1A2638",
+            "sidebar_active": "#24344A",
+            "primary": "#7C9CCB",
+            "primary_hover": "#92AFD6",
+            "text": "#E5E7EB",
+            "muted": "#9CA9BA",
+            "border": "#334155",
+            "success": "#86C7A3",
+            "danger": "#D98A97",
+            "selection": "#31435A",
             **dict(self.ui.get("colors", {})),
         }
         self.font_family = str(self.ui.get("font_family", "Segoe UI"))
@@ -2064,7 +2285,7 @@ class InsertFormApp(tk.Tk):
             "PageTitle.TLabel",
             background=c["background"],
             foreground=c["text"],
-            font=(self.font_family, 22, "bold"),
+            font=(self.font_family, 20, "bold"),
         )
         style.configure(
             "PageSubtitle.TLabel", background=c["background"], foreground=c["muted"]
@@ -2102,6 +2323,13 @@ class InsertFormApp(tk.Tk):
         style.configure("StatusDot.TLabel", background=c["surface_alt"], foreground=c["primary"])
         style.configure("SuccessDot.TLabel", background=c["surface_alt"], foreground=c["success"])
         style.configure("DangerDot.TLabel", background=c["surface_alt"], foreground=c["danger"])
+        style.configure(
+            "Danger.TButton",
+            background=c["danger"],
+            foreground=c["topbar"],
+            padding=(14, 9),
+        )
+        style.map("Danger.TButton", background=[("active", c["danger"])])
 
         style.configure(
             "Modern.TEntry",
@@ -2143,7 +2371,7 @@ class InsertFormApp(tk.Tk):
         )
 
         for name, background, foreground in (
-            ("Primary.TButton", c["primary"], "#FFFFFF"),
+            ("Primary.TButton", c["primary"], c["topbar"]),
             ("Secondary.TButton", c["surface_alt"], c["text"]),
             ("Ghost.TButton", c["surface"], c["muted"]),
         ):
@@ -2317,7 +2545,7 @@ class InsertFormApp(tk.Tk):
         update_config: Mapping[str, Any],
     ) -> None:
         """Cambia la conexión activa y regenera las páginas dependientes de la tabla."""
-        for key in ("insert", "update", "bulk", "logs"):
+        for key in ("insert", "update", "delete", "bulk", "logs"):
             page = self.pages.pop(key, None)
             if page is not None:
                 page.destroy()
@@ -2325,7 +2553,7 @@ class InsertFormApp(tk.Tk):
             if button is not None:
                 button.destroy()
 
-        self.repository = SQLServerRepository(
+        self.repository = create_repository(
             db_config,
             form_config,
             update_config,
@@ -2333,28 +2561,31 @@ class InsertFormApp(tk.Tk):
         )
         self.form_config = dict(form_config)
         self.connection_profile = dict(db_config)
+        provider_name = provider_display_name(db_config)
         self.sidebar_hint_text = (
-            "SQL SERVER\nConectado"
+            f"{provider_name.upper()}\nConectado"
             if self.repository.update_enabled
-            else "SQL SERVER\nConectado · sin clave para UPDATE"
+            else f"{provider_name.upper()}\nConectado · sin clave para UPDATE/DELETE"
         )
         self.sidebar_hint.configure(
             text="" if self.sidebar_collapsed else self.sidebar_hint_text
         )
         self.active_table.set(f"{self.repository.schema}.{self.repository.table}")
-        self.title(str(form_config.get("window_title", "Gestión SQL Server")))
+        self.title(str(form_config.get("window_title", "Gestión de base de datos")))
 
         self._add_nav_button("insert", "＋", "Insertar registro", 2)
         if self.repository.update_enabled:
             self._add_nav_button("update", "⌕", "Buscar / actualizar", 3)
+            self._add_nav_button("delete", "−", "Buscar / eliminar", 4)
         if self.bulk_enabled:
-            self._add_nav_button("bulk", "⇧", "Insertar desde Excel", 4)
+            self._add_nav_button("bulk", "⇧", "Insertar desde Excel", 5)
         if self.log_enabled:
-            self._add_nav_button("logs", "≡", "SQL / Logs", 5)
+            self._add_nav_button("logs", "≡", "SQL / Logs", 6)
 
         self.pages["insert"] = InsertPage(self.content, self)
         if self.repository.update_enabled:
             self.pages["update"] = UpdatePage(self.content, self)
+            self.pages["delete"] = DeletePage(self.content, self)
         if self.bulk_enabled:
             self.pages["bulk"] = BulkInsertPage(self.content, self)
         if self.log_enabled:
@@ -2376,9 +2607,9 @@ class InsertFormApp(tk.Tk):
             command=lambda page=key: self.show_page(page),
             anchor="w",
             background=c["sidebar"],
-            foreground="#D4D4D8",
+            foreground=c["text"],
             activebackground=c["sidebar_hover"],
-            activeforeground="#FFFFFF",
+            activeforeground=c["text"],
             relief="flat",
             borderwidth=0,
             font=(self.font_family, 10),
@@ -2408,7 +2639,7 @@ class InsertFormApp(tk.Tk):
                 background=self.colors["sidebar_active"]
                 if key == name
                 else self.colors["sidebar"],
-                foreground="#FFFFFF" if key == name else "#D4D4D8",
+                foreground=self.colors["text"],
             )
         page = self.pages[name]
         on_show = getattr(page, "on_show", None)
@@ -2511,7 +2742,7 @@ class InsertFormApp(tk.Tk):
                 self.after(
                     0,
                     lambda: on_error(
-                        "SQL Server", "No se pudo completar la operación.\n\n" + message
+                        "Base de datos", "No se pudo completar la operación.\n\n" + message
                     ),
                 )
             else:

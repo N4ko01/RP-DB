@@ -50,11 +50,21 @@ STRING_TYPES = {
     "ntext",
     "uniqueidentifier",
     "xml",
+    "character",
+    "character varying",
+    "uuid",
+    "json",
+    "jsonb",
+    "user-defined",
+    "array",
 }
-INTEGER_TYPES = {"tinyint", "smallint", "int", "bigint"}
-FLOAT_TYPES = {"real", "float"}
+INTEGER_TYPES = {"tinyint", "smallint", "int", "integer", "bigint", "smallserial", "serial", "bigserial"}
+FLOAT_TYPES = {"real", "float", "double precision"}
 DECIMAL_TYPES = {"decimal", "numeric", "money", "smallmoney"}
-DATETIME_TYPES = {"datetime", "datetime2", "smalldatetime", "datetimeoffset"}
+DATETIME_TYPES = {
+    "datetime", "datetime2", "smalldatetime", "datetimeoffset",
+    "timestamp", "timestamp without time zone", "timestamp with time zone",
+}
 AUTOMATIC_TYPES = {"timestamp", "rowversion"}
 UNSUPPORTED_KEY_TYPES = {
     "text",
@@ -66,6 +76,7 @@ UNSUPPORTED_KEY_TYPES = {
     "geography",
     "geometry",
     "hierarchyid",
+    "json",
 }
 NON_EQUALITY_TYPES = {
     "text",
@@ -75,6 +86,7 @@ NON_EQUALITY_TYPES = {
     "geography",
     "geometry",
     "hierarchyid",
+    "json",
 }
 
 
@@ -119,7 +131,7 @@ def sql_column_to_field(column: ColumnMetadata) -> dict[str, Any] | None:
     }
     if sql_type in STRING_TYPES:
         field["type"] = "str"
-        if sql_type == "uniqueidentifier":
+        if sql_type in {"uniqueidentifier", "uuid"}:
             field["max_length"] = 36
         elif column.max_length not in (None, -1) and sql_type not in {"text", "ntext", "xml"}:
             length = int(column.max_length)
@@ -134,7 +146,7 @@ def sql_column_to_field(column: ColumnMetadata) -> dict[str, Any] | None:
         field["type"] = "float"
     elif sql_type in DECIMAL_TYPES:
         field["type"] = "decimal"
-    elif sql_type == "bit":
+    elif sql_type in {"bit", "boolean"}:
         field.update({"type": "bool", "widget": "checkbox", "default": False})
     elif sql_type == "date":
         field.update({"type": "date", "placeholder": "AAAA-MM-DD"})
@@ -142,7 +154,7 @@ def sql_column_to_field(column: ColumnMetadata) -> dict[str, Any] | None:
         field.update(
             {"type": "datetime", "placeholder": "AAAA-MM-DD HH:MM:SS"}
         )
-    elif sql_type == "time":
+    elif sql_type in {"time", "time without time zone", "time with time zone"}:
         field.update({"type": "time", "placeholder": "HH:MM:SS"})
     else:
         return None

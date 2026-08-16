@@ -25,8 +25,11 @@ class CredentialProfileStore:
     SERVICE_NAME = "SQL Record Manager"
     PASSWORD_KEY = "active-sqlserver-password"
     ALLOWED_KEYS = {
+        "provider",
         "server",
         "database",
+        "port",
+        "sslmode",
         "driver",
         "driver_candidates",
         "trusted_connection",

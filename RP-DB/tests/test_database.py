@@ -324,6 +324,28 @@ class DatabaseLogicTests(unittest.TestCase):
         logged = repo.operation_logger.record.call_args.kwargs
         self.assertEqual(logged["transaction"], "ROLLBACK")
 
+    def test_delete_uses_key_and_commits_exactly_one_row(self):
+        repo = self.make_update_repository()
+        cursor = MagicMock()
+        cursor.fetchone.return_value = (1,)
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+        repo._connect = MagicMock(return_value=connection)
+
+        affected = repo.delete({"ClienteID": 7, "Nombre": "Ana"})
+
+        self.assertEqual(affected, 1)
+        sql, *parameters = cursor.execute.call_args.args
+        self.assertIn("DELETE FROM [dbo].[Clientes]", sql)
+        self.assertEqual(parameters, [7, 7])
+        connection.commit.assert_called_once_with()
+
+    def test_limited_delete_uses_validated_top(self):
+        repo = self.make_non_unique_repository()
+        sql = repo.build_limited_delete_statement(3)
+        self.assertIn("DELETE TOP (3) FROM [dbo].[Campania_Example]", sql)
+        self.assertNotIn("TOP (?)", sql)
+
 
 if __name__ == "__main__":
     unittest.main()

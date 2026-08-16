@@ -17,7 +17,8 @@ from config import (
     UPDATE_CONFIG,
 )
 from credential_store import CredentialProfileStore
-from database import ConfigurationError, SQLServerRepository
+from database import ConfigurationError
+from providers import create_repository
 from gui import InsertFormApp
 from operation_log import OperationLogger
 
@@ -43,7 +44,7 @@ def main() -> None:
         profile_store = CredentialProfileStore()
         connection_profile = profile_store.load(DB_CONFIG)
         logger = OperationLogger(LOG_CONFIG)
-        repository = SQLServerRepository(
+        repository = create_repository(
             connection_profile,
             FORM_CONFIG,
             {"enabled": False},
