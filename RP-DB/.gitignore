@@ -9,7 +9,7 @@ logs/
 connection_profile.json
 
 .vscode/
-.idea/
+#.idea/
 
 dist/
 build/
