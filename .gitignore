@@ -18,12 +18,11 @@ RP-DB/logs/
 # Salidas de compilación y distribución
 build/
 dist/
+build_windows.ps1
+installer/
 *.spec
 *.pkg
 *.toc
-
-# Excepciones: conservar la configuración del instalador
-!installer/*.spec
 
 # Configuración de editores
 .vscode/
