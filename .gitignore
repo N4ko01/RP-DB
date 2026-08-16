@@ -21,6 +21,7 @@ dist/
 *.spec
 *.pkg
 *.toc
+SQLRecordManager-temp.iss
 
 # Configuración de editores
 .vscode/
