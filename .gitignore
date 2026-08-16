@@ -1,0 +1,34 @@
+# Entornos virtuales y secretos locales
+.venv/
+venv/
+env/
+.env
+connection_profile.json
+
+# Python generado
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Logs y datos locales
+logs/
+*.log
+RP-DB/logs/
+
+# Salidas de compilación y distribución
+build/
+dist/
+*.spec
+*.pkg
+*.toc
+
+# Excepciones: conservar la configuración del instalador
+!installer/*.spec
+
+# Configuración de editores
+.vscode/
+.idea/
+
+# Temporales del sistema
+Thumbs.db
+Desktop.ini

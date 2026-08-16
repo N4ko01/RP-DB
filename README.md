@@ -128,6 +128,11 @@ El proyecto puede empaquetarse con PyInstaller para que el usuario no necesite
 Python instalado. PyInstaller debe ejecutarse en Windows para generar la
 versión Windows.
 
+Los archivos preparados para crear la aplicación y el instalador están en
+[installer/README.md](installer/README.md). El script [build_windows.ps1](build_windows.ps1)
+genera la aplicación compilada y `installer/SQLRecordManager.iss` crea el
+instalador de Windows con Inno Setup.
+
 Primero instala PyInstaller en el entorno de desarrollo:
 
 ```powershell
@@ -147,7 +152,7 @@ pyinstaller --noconfirm --clean --windowed --onedir `
 El resultado estará en:
 
 ```text
-dist/SQLRecordManager/
+dist/SQLRecordManager.exe
 ```
 
 La opción `--onedir` crea una carpeta completa y suele ser más sencilla de
